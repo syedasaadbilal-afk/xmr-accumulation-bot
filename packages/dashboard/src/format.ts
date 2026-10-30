@@ -13,6 +13,17 @@ export const fmtPct = (n: number | null | undefined) => (n === null || n === und
 export const pctCls = (n: number | null | undefined) => (n === null || n === undefined ? "text-slate-500" : n >= 0 ? "text-emerald-400" : "text-red-400");
 export const num = (n: number | null | undefined, d = 4) => (n === null || n === undefined ? "-" : n.toFixed(d));
 
+/**
+ * Annualised (CAGR) version of a cumulative return, measured from the first signal entry to now.
+ * Returns null under 30 days of history, where annualising is meaningless.
+ */
+export function cagrPct(cumPct: number | null | undefined, firstEntrySec: number | null, nowMs = Date.now()): number | null {
+  if (cumPct === null || cumPct === undefined || firstEntrySec === null) return null;
+  const days = (nowMs / 1000 - firstEntrySec) / 86_400;
+  if (!(days >= 30) || cumPct <= -100) return null;
+  return (Math.pow(1 + cumPct / 100, 365.25 / days) - 1) * 100;
+}
+
 /** An XMR amount shown in the chosen unit (BTC value uses the current XMR/BTC price). */
 export function formatAmount(xmr: number, priceBtcPerXmr: number | null, unit: DisplayUnit, opts?: { signed?: boolean }): string {
   const sign = opts?.signed ? (xmr >= 0 ? "+" : "") : "";

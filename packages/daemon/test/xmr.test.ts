@@ -181,6 +181,20 @@ describe("planTick", () => {
     expect(q.action).toEqual({ kind: "sweep", into: "xmr", ust: 400 });
   });
 
+  it("sweeps idle USDT in the wallet even when nothing is tracked as stranded", () => {
+    const p = planTick(baseInput({ cfg: cfg({ minTradeUsd: 1 }), wallets: { xmr: 0, btc: 0.4, xmrAvail: 0, btcAvail: 0.4, ustAvail: 21.29 } }));
+    expect(p.action.kind).toBe("sweep");
+    expect((p.action as { ust: number }).ust).toBeCloseTo(21.29 * 0.999, 6);
+    const dust = planTick(baseInput({ cfg: cfg({ minTradeUsd: 1 }), wallets: { xmr: 0, btc: 0.4, xmrAvail: 0, btcAvail: 0.4, ustAvail: 2 } }));
+    expect(dust.action.kind).toBe("none");
+  });
+
+  it("does not sweep idle USDT into BTC beyond the position cap", () => {
+    const c = cfg({ positionCapXmr: 5, minTradeUsd: 1 });
+    const p = planTick(baseInput({ cfg: c, wallets: { xmr: 0, btc: 0.4, xmrAvail: 0, btcAvail: 0.4, ustAvail: 500 } }));
+    expect(p.action.kind).toBe("none");
+  });
+
   it("clears stranded USDT that is no longer in the wallet", () => {
     const p = planTick(baseInput({ wallets: { xmr: 10, btc: 0, xmrAvail: 10, btcAvail: 0, ustAvail: 0 } }, { strandedUst: 400 }));
     expect(p.clearStranded).toBe(true);

@@ -1,9 +1,9 @@
 import { IMPOSSIBLE, VersionInfo } from '@start9labs/start-sdk'
 export const current = VersionInfo.of({
-  version: '0.1.1:0',
+  version: '0.1.2:0',
   releaseNotes: {
     en_US:
-      'Fix: load the full XMR/BTC daily history (back to 2016) so the Larsson lines match TradingView exactly. Previously only the last 1,000 bars were used, which gave a wrong 2024 entry/exit in the trade list. Candles are cached for 2 minutes.',
+      'Idle USDT sitting in the wallet is now swept into whatever the strategy wants (respecting the position cap). Timeline and Status now show cumulative return and CAGR for the chart signals.',
   },
   migrations: { up: async ({ effects }) => {}, down: IMPOSSIBLE },
 })

@@ -1,5 +1,5 @@
 import type { StatusDto } from "../api.js";
-import { btnCls, card, formatAmount, formatCountdown, fmtPct, num, pctCls, type DisplayUnit } from "../format.js";
+import { btnCls, cagrPct, card, formatAmount, formatCountdown, fmtPct, num, pctCls, type DisplayUnit } from "../format.js";
 import { LarssonChart } from "./LarssonChart.js";
 import { LineChart } from "./LineChart.js";
 import { MetricTile } from "./MetricTile.js";
@@ -112,7 +112,7 @@ export function StatusTab({
           valueColor={s.caps.newMoney.wouldHoldBackNow ? "text-amber-400" : "text-slate-100"}
         />
         <MetricTile label="Position cap" value={s.config.positionCapXmr > 0 ? `${s.config.positionCapXmr} XMR` : "off"} />
-        <MetricTile label="Strategy XMR gain" value={fmtPct(s.summary.signalXmrReturnPct)} valueColor={pctCls(s.summary.signalXmrReturnPct)} sublabel="chart signals, compounded" />
+        <MetricTile label="Strategy XMR gain" value={fmtPct(s.summary.signalXmrReturnPct)} valueColor={pctCls(s.summary.signalXmrReturnPct)} sublabel={`chart signals, cumulative · CAGR ${fmtPct(cagrPct(s.summary.signalXmrReturnPct, s.trades[s.trades.length - 1]?.entryTime ?? null))}`} />
       </div>
 
       <LarssonChart bars={s.bars} signals={s.signals} />

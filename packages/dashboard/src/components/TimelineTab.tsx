@@ -1,5 +1,5 @@
 import type { ExecutionDto, StatusDto, TradeDto } from "../api.js";
-import { card, fmtDate, fmtPct, fmtTs, h3, num, pctCls } from "../format.js";
+import { cagrPct, card, fmtDate, fmtPct, fmtTs, h3, num, pctCls } from "../format.js";
 
 const KIND: Record<ExecutionDto["kind"], string> = {
   to_btc: "Entry (XMR → BTC)",
@@ -116,7 +116,14 @@ export function TimelineTab({ status }: { status: StatusDto | undefined }) {
             Net PnL: <span className={pctCls(sm.actualNetPnlXmr)}>{sm.actualClosed > 0 || sm.actualNetPnlXmr !== 0 ? `${sm.actualNetPnlXmr >= 0 ? "+" : ""}${sm.actualNetPnlXmr.toFixed(4)} XMR` : "-"}</span>
           </span>
           <span>
-            Chart signals: <span className="text-slate-100">{sm.closed} closed, {sm.wins} wins, {fmtPct(sm.signalXmrReturnPct)} compounded</span>
+            Chart signals: <span className="text-slate-100">{sm.closed} closed, {sm.wins} wins</span>
+          </span>
+          <span>
+            Cumulative: <span className={pctCls(sm.signalXmrReturnPct)}>{fmtPct(sm.signalXmrReturnPct)}</span>
+          </span>
+          <span>
+            CAGR: <span className={pctCls(cagrPct(sm.signalXmrReturnPct, s.trades[s.trades.length - 1]?.entryTime ?? null))}>{fmtPct(cagrPct(sm.signalXmrReturnPct, s.trades[s.trades.length - 1]?.entryTime ?? null))}</span>
+            <span className="text-slate-500"> /yr since {fmtDate(s.trades[s.trades.length - 1]?.entryTime ?? null)}</span>
           </span>
         </div>
         <div className="overflow-x-auto">

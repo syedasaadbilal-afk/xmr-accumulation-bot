@@ -170,8 +170,12 @@ export function planTick(i: PlanInput): Plan {
   // 3. Decide the next action.
   let action: PlannedAction;
   let clearStranded = false;
-  if (state.strandedUst * 1 >= cfg.minTradeUsd) {
-    const ust = Math.min(state.strandedUst, w.ustAvail * 0.999);
+  // Idle USDT: leftovers from earlier rotations (tracked as stranded) or anything else sitting in the
+  // bot's wallet. The account is bot-only, so it is put to work in whatever the strategy wants.
+  const idleUst = w.ustAvail * 0.999;
+  const sweepMin = Math.max(cfg.minTradeUsd, 5);
+  if (state.strandedUst >= cfg.minTradeUsd) {
+    const ust = Math.min(state.strandedUst, idleUst);
     if (ust >= 1) {
       action = { kind: "sweep", into: desiredBtc ? "btc" : "xmr", ust };
       return { deposits, heldBackXmr: heldBack, clearStranded, action, notes };
@@ -180,6 +184,18 @@ export function planTick(i: PlanInput): Plan {
     notes.push("stranded USDT is no longer in the wallet: cleared");
   } else if (state.strandedUst > 0) {
     clearStranded = true; // dust
+  }
+  if (idleUst >= sweepMin) {
+    let ust = idleUst;
+    if (desiredBtc && cfg.positionCapXmr > 0) {
+      const room = Math.max(0, cfg.positionCapXmr - w.btc / price);
+      ust = Math.min(ust, room * i.usdPerXmr);
+    }
+    if (ust >= sweepMin) {
+      action = { kind: "sweep", into: desiredBtc ? "btc" : "xmr", ust };
+      notes.push(`${ust.toFixed(2)} USDT sitting idle in the wallet: swept into ${desiredBtc ? "BTC" : "XMR"}`);
+      return { deposits, heldBackXmr: heldBack, clearStranded, action, notes };
+    }
   }
 
   if (desiredBtc) {
