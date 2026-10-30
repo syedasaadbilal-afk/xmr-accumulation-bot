@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.sqlite
+.env
+
+# StartOS packaging artifacts
+javascript/
+*.s9pk
+*.tsbuildinfo
+tsconfig.startos.json

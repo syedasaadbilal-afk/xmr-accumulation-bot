@@ -1,0 +1,29 @@
+{
+  "name": "xmr-accumulation-bot",
+  "private": true,
+  "version": "0.1.0",
+  "description": "XMR accumulation bot for Bitfinex: mirrored Larsson Line on BTC priced in XMR. Spot only, small limit orders one at a time.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "typecheck:packages": "npm run typecheck --workspaces --if-present",
+    "check": "tsc --noEmit",
+    "build": "rm -rf ./javascript && ncc build startos/index.ts -o ./javascript",
+    "prettier": "prettier --write startos"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4",
+    "@types/node": "^22.19.0",
+    "@vercel/ncc": "^0.38.4",
+    "prettier": "^3.6.2"
+  },
+  "dependencies": {
+    "@start9labs/start-sdk": "^1.5.3"
+  }
+}
