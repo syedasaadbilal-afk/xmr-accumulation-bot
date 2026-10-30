@@ -12,7 +12,8 @@ import {
 } from "./larsson.js";
 import type { Store } from "./store.js";
 
-export const CANDLE_LIMIT = 1000;
+/** XMR/BTC history reaches back to 2016 (~3,700 daily bars). The Larsson lines need the full history to match TradingView exactly. */
+export const CANDLE_LIMIT = 5000;
 
 // ---------------------------------------------------------------- analysis
 

@@ -42,6 +42,9 @@ export interface Exchange {
   cancelOrder(orderId: string): Promise<void>;
 }
 
+const CANDLE_CACHE = new Map<string, { at: number; rows: DailyCandle[] }>();
+const CANDLE_CACHE_MS = 120_000;
+
 export const BASE_URL = "https://api.bitfinex.com";
 export const PUBLIC_URL = "https://api-pub.bitfinex.com";
 
@@ -121,6 +124,16 @@ export class BitfinexExchange implements Exchange {
   // ---- public ----
 
   async getDailyCandles(symbol: string, limit: number): Promise<DailyCandle[]> {
+    // Long history is a big download; reuse it for a couple of minutes (signals only use confirmed daily closes).
+    const key = `${symbol}:${limit}`;
+    const hit = CANDLE_CACHE.get(key);
+    if (hit && Date.now() - hit.at < CANDLE_CACHE_MS) return hit.rows;
+    const rows = await this.fetchDailyCandles(symbol, limit);
+    CANDLE_CACHE.set(key, { at: Date.now(), rows });
+    return rows;
+  }
+
+  private async fetchDailyCandles(symbol: string, limit: number): Promise<DailyCandle[]> {
     await this.limiter.wait();
     const res = await this.fetchImpl(`${PUBLIC_URL}/v2/candles/trade:1D:${symbol}/hist?limit=${limit}`);
     if (!res.ok) throw new Error(`candles ${symbol} failed: ${res.status} ${await res.text()}`);

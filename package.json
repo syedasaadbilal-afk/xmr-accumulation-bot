@@ -1,7 +1,7 @@
 {
   "name": "xmr-accumulation-bot",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "XMR accumulation bot for Bitfinex: mirrored Larsson Line on BTC priced in XMR. Spot only, small limit orders one at a time.",
   "workspaces": [
     "packages/*"
