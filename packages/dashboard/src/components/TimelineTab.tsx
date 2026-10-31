@@ -11,6 +11,11 @@ const KIND: Record<ExecutionDto["kind"], string> = {
   sweep_xmr: "Sweep (USDT → XMR)",
 };
 
+/** The exchange pair quote (BTC per XMR, as Bitfinex shows it) from the inverted price used by the strategy (XMR per BTC). */
+function pairPx(v: number | null | undefined): string {
+  return v && v > 0 ? (1 / v).toFixed(6) : "-";
+}
+
 function amt(asset: string | null, v: number): string {
   return asset === null ? "-" : `${v.toFixed(asset === "BTC" ? 6 : asset === "USDT" ? 2 : 4)} ${asset}`;
 }
@@ -38,7 +43,7 @@ function Executions({ rows }: { rows: ExecutionDto[] }) {
             <td className="py-2 pr-3 font-mono text-right">{amt(e.boughtAsset, e.bought)}</td>
             <td className="py-2 pr-3 text-xs text-slate-500">
               {e.orders} order{e.orders === 1 ? "" : "s"}
-              {e.ratio !== null ? ` · ${e.ratio.toFixed(3)} XMR per BTC` : ""}
+              {e.ratio !== null ? ` · ${e.ratio.toFixed(3)} XMR per BTC (pair ${pairPx(e.ratio)} BTC/XMR)` : ""}
               {e.btcUsd !== null ? ` · BTC $${e.btcUsd.toFixed(0)}` : ""}
               {e.xmrUsd !== null ? ` · XMR $${e.xmrUsd.toFixed(2)}` : ""}
             </td>
@@ -68,7 +73,8 @@ function TradeBlock({ t, n }: { t: TradeDto; n: number }) {
         <td className="py-2 pr-3 text-slate-400">{t.status === "open" ? "Open" : "Exit"} <span className="font-mono text-slate-200">{t.status === "open" ? "now" : fmtDate(t.exitTime)}</span></td>
         <td className="py-2 pr-3 font-mono">
           {a?.exitPrice != null ? a.exitPrice.toFixed(4) : sigOnly ? (t.status === "open" ? "mark" : num(t.exitSignal, 4)) : "-"}
-          {!sigOnly && t.status === "closed" && <div className="text-xs text-slate-500">signal {num(t.exitSignal, 4)}</div>}
+          <div className="text-xs text-slate-500">pair {pairPx(a?.exitPrice ?? (t.status === "closed" ? t.exitSignal : null))}</div>
+          {!sigOnly && t.status === "closed" && <div className="text-xs text-slate-500">signal {num(t.exitSignal, 4)} · pair {pairPx(t.exitSignal)}</div>}
         </td>
         <td className="py-2 pr-3 font-mono">{a ? `${a.sizeBtc.toFixed(6)} BTC` : "-"}</td>
         <td className={`py-2 pr-3 font-mono ${pctCls(a?.pnlXmr ?? t.xmrReturnPct)}`} rowSpan={2}>
@@ -84,7 +90,8 @@ function TradeBlock({ t, n }: { t: TradeDto; n: number }) {
         <td className="pb-2 pr-3 text-slate-400">Entry <span className="font-mono text-slate-200">{fmtDate(t.entryTime)}</span></td>
         <td className="pb-2 pr-3 font-mono">
           {a?.entryPrice != null ? a.entryPrice.toFixed(4) : num(t.entrySignal, 4)}
-          {a && <div className="text-xs text-slate-500">signal {num(t.entrySignal, 4)}</div>}
+          <div className="text-xs text-slate-500">pair {pairPx(a?.entryPrice ?? t.entrySignal)}</div>
+          {a && <div className="text-xs text-slate-500">signal {num(t.entrySignal, 4)} · pair {pairPx(t.entrySignal)}</div>}
         </td>
         <td className="pb-2 pr-3 font-mono">{a ? `${a.sizeBtc.toFixed(6)} BTC` : "-"}</td>
       </tr>
@@ -136,7 +143,7 @@ export function TimelineTab({ status }: { status: StatusDto | undefined }) {
                 <th className="pr-3 pb-1 font-medium">Trade #</th>
                 <th className="pr-3 pb-1 font-medium">Type</th>
                 <th className="pr-3 pb-1 font-medium">Date</th>
-                <th className="pr-3 pb-1 font-medium">Price (XMR per BTC)</th>
+                <th className="pr-3 pb-1 font-medium">Price (XMR per BTC, pair BTC/XMR)</th>
                 <th className="pr-3 pb-1 font-medium">Size</th>
                 <th className="pr-3 pb-1 font-medium">Net PnL</th>
                 <th className="pb-1 font-medium text-right">Return</th>
@@ -157,7 +164,7 @@ export function TimelineTab({ status }: { status: StatusDto | undefined }) {
           </table>
         </div>
         <p className="text-xs text-slate-500 mt-2">
-          Price = what the bot actually got (average of the real fills, XMR per BTC); "signal" = the chart's next-open price. Trades the bot did not execute (before it started) show "signal prices only". Bitfinex spot trading fees are zero, so the gap between actual and signal is spread and slippage. Net PnL is in XMR and open trades are marked to the current price.
+          Price = what the bot actually got (average of the real fills, XMR per BTC; "pair" is the same price as Bitfinex quotes the XMR/BTC pair, BTC per XMR); "signal" = the chart's next-open price. Trades the bot did not execute (before it started) show "signal prices only". Bitfinex spot trading fees are zero, so the gap between actual and signal is spread and slippage. Net PnL is in XMR and open trades are marked to the current price.
         </p>
       </div>
 
