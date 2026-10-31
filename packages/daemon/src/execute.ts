@@ -94,6 +94,8 @@ export interface RotateParams {
   pollMs?: number;
   onFill?: (f: FillRecord) => void;
   log?: (m: string) => void;
+  /** Checked before every new order; true = stop (run mode changed to PAUSED / DRY_RUN). */
+  shouldStop?: () => boolean;
 }
 
 /**
@@ -125,6 +127,10 @@ export async function rotate(p: RotateParams): Promise<RotateResult> {
     let stranded = 0;
     let lastDust = 2;
     while (remaining > 0) {
+      if (p.shouldStop?.()) {
+        result.interrupted = "stopped: bot was paused";
+        break;
+      }
       const sellT = await ex.getTicker(sellSym);
       if (!(sellT.bid > 0)) {
         result.interrupted = `no bid on ${sellSym}`;
@@ -191,6 +197,7 @@ export async function sweepUst(p: {
   pollMs?: number;
   onFill?: (f: FillRecord) => void;
   log?: (m: string) => void;
+  shouldStop?: () => boolean;
 }): Promise<{ bought: number; spentUst: number; strandedUst: number; interrupted: string | null }> {
   const log = p.log ?? ((m: string) => console.log(`[xmr] ${m}`));
   const sym = p.into === "btc" ? BTC_UST : XMR_UST;
@@ -200,6 +207,10 @@ export async function sweepUst(p: {
   try {
     const min = await p.ex.getMinOrderSize(sym);
     for (let i = 0; i < 20 && left > Math.max(2, p.ust * DUST_FRACTION); i++) {
+      if (p.shouldStop?.()) {
+        interrupted = "stopped: bot was paused";
+        break;
+      }
       const t = await p.ex.getTicker(sym);
       if (!(t.ask > 0)) break;
       const px = t.ask * (1 + LIMIT_BUFFER);
@@ -239,6 +250,7 @@ export async function raiseUst(p: {
   pollMs?: number;
   onFill?: (f: FillRecord) => void;
   log?: (m: string) => void;
+  shouldStop?: () => boolean;
 }): Promise<{ sold: number; proceeds: number; interrupted: string | null }> {
   const log = p.log ?? ((m: string) => console.log(`[xmr] ${m}`));
   const sym = p.from === "btc" ? BTC_UST : XMR_UST;
@@ -250,6 +262,10 @@ export async function raiseUst(p: {
   try {
     const min = await p.ex.getMinOrderSize(sym);
     for (let i = 0; i < 200 && left >= 2 && baseLeft > 0; i++) {
+      if (p.shouldStop?.()) {
+        interrupted = "stopped: bot was paused";
+        break;
+      }
       const t = await p.ex.getTicker(sym);
       if (!(t.bid > 0)) {
         interrupted = `no bid on ${sym}`;
@@ -297,6 +313,7 @@ export async function convertToUst(p: {
   pollMs?: number;
   onFill?: (f: FillRecord) => void;
   log?: (m: string) => void;
+  shouldStop?: () => boolean;
 }): Promise<{ spent: number; gotUst: number; interrupted: string | null }> {
   const log = p.log ?? ((m: string) => console.log(`[xmr] ${m}`));
   const timeout = p.fillTimeoutMs ?? 5 * 60_000;
@@ -309,6 +326,10 @@ export async function convertToUst(p: {
       const min = await p.ex.getMinOrderSize(UST_USD);
       let left = p.amount;
       for (let i = 0; i < 50 && left > 0; i++) {
+        if (p.shouldStop?.()) {
+          interrupted = "stopped: bot was paused";
+          break;
+        }
         const t = await p.ex.getTicker(UST_USD);
         if (!(t.ask > 0)) {
           interrupted = `no ask on ${UST_USD}`;
@@ -337,6 +358,10 @@ export async function convertToUst(p: {
       const min = await p.ex.getMinOrderSize(sym);
       let left = p.amount;
       for (let i = 0; i < 50 && left > 0; i++) {
+        if (p.shouldStop?.()) {
+          interrupted = "stopped: bot was paused";
+          break;
+        }
         const t = await p.ex.getTicker(sym);
         if (!(t.bid > 0)) {
           interrupted = `no bid on ${sym}`;

@@ -391,6 +391,40 @@ describe("runTick", () => {
     expect(ex.orders).toHaveLength(0);
   });
 
+  it("LIVE: stranded USDT too small for the pair minimum does not block the rotation", async () => {
+    const store = newStore();
+    store.setConfig(cfg({ chunkUsd: 5000, minTradeUsd: 1 }));
+    store.setState({ ...DEFAULT_STATE, strandedUst: 8.11 });
+    // strategy wants XMR (crash); XMR minimum order is 0.01 (= $40) so 8.11 USDT cannot buy any
+    const ex = new FakeExchange({ closes: DOWN_CLOSES, btc: 0.1, ust: 8.11, mins: { "tXMRUST": 0.01 } });
+    const NOW2 = nowAfter(DOWN_CLOSES.length);
+    const r1 = await runTick({ ex, store, now: NOW2, pollMs: 0 });
+    expect(r1.action).toBe("swept"); // tried, bought nothing
+    expect(ex.orders).toHaveLength(0);
+    const r2 = await runTick({ ex, store, now: NOW2 + 60_000, pollMs: 0 });
+    expect(r2.action).toBe("rotated"); // no longer stuck: BTC goes into XMR
+    expect(ex.wallets["BTC"]!).toBeLessThan(0.01);
+    expect(ex.wallets["XMR"]!).toBeGreaterThan(2);
+  });
+
+  it("PAUSED mid-rotation: the order in flight finishes, then no further orders are placed", async () => {
+    const store = newStore();
+    store.setConfig(cfg({ chunkUsd: 1000 }));
+    const ex = new FakeExchange({ closes: UP_CLOSES, xmr: 10 }); // $40,000 to convert = many chunks
+    const orig = ex.submitOrder.bind(ex);
+    let n = 0;
+    ex.submitOrder = async (o) => {
+      const r = await orig(o);
+      if (++n === 2) store.setConfig(cfg({ chunkUsd: 1000, enabled: false })); // user clicks PAUSED after chunk 1 (sell + buy)
+      return r;
+    };
+    const r = await runTick({ ex, store, now: NOW, pollMs: 0 });
+    expect(ex.orders).toHaveLength(2); // one full sell+buy pair, nothing more
+    expect(r.detail).toMatch(/paused/);
+    expect(ex.wallets["XMR"]!).toBeGreaterThan(9); // the rest was not converted
+    expect(store.getState().strandedUst).toBe(0);
+  });
+
   it("LIVE: new XMR deposited later is detected, logged, and converted (cap off)", async () => {
     const store = newStore();
     store.setConfig(cfg({ chunkUsd: 5000 }));

@@ -212,7 +212,7 @@ export function planTick(i: PlanInput): Plan {
       return { deposits, heldBackXmr: heldBack, clearStranded, action, notes };
     }
     clearStranded = true;
-    notes.push("stranded USDT is no longer in the wallet: cleared");
+    notes.push(idleParked ? "stranded USDT is too small to buy anything: set aside until the balance changes" : "stranded USDT is no longer in the wallet: cleared");
   } else if (state.strandedUst > 0) {
     clearStranded = true; // dust
   }
@@ -409,18 +409,23 @@ export async function runTick(d: { ex: Exchange; store: Store; now?: number; pol
       store.addFill({ ts: Date.now(), rotationId, symbol: f.symbol, side: f.side, base: f.base, price: f.price });
     store.addEvent("rotation_start", `Converting ${describe}`, { regime: a.last.regime, dist: a.last.dist }, now);
 
+    // Re-read the run mode before every new order so PAUSED / DRY_RUN stops a rotation that is already running.
+    const shouldStop = () => {
+      const c = store.getConfig();
+      return !c.enabled || c.mode !== "LIVE";
+    };
     let stranded: number;
     let summary: string;
     let interrupted: string | null;
     let kind: TickResult["action"];
     if (act.kind === "raise_usdt") {
-      const r = await raiseUst({ ex, from: "xmr", usd: act.usd, maxBase: act.base, chunkUsd: cfg.chunkUsd, onFill, ...(d.pollMs !== undefined ? { pollMs: d.pollMs } : {}) });
+      const r = await raiseUst({ ex, from: "xmr", usd: act.usd, maxBase: act.base, chunkUsd: cfg.chunkUsd, onFill, shouldStop, ...(d.pollMs !== undefined ? { pollMs: d.pollMs } : {}) });
       stranded = state.strandedUst;
       summary = `Raised ${fx(r.proceeds, 2)} USDT by selling ${fx(r.sold, 6)} XMR from the reserve`;
       interrupted = r.interrupted;
       kind = "raised";
     } else if (act.kind === "convert_other") {
-      const r = await convertToUst({ ex, currency: act.currency, amount: act.amount, chunkUsd: cfg.chunkUsd, onFill, ...(d.pollMs !== undefined ? { pollMs: d.pollMs } : {}) });
+      const r = await convertToUst({ ex, currency: act.currency, amount: act.amount, chunkUsd: cfg.chunkUsd, onFill, shouldStop, ...(d.pollMs !== undefined ? { pollMs: d.pollMs } : {}) });
       stranded = state.strandedUst;
       summary = `Converted ${fx(r.spent, 6)} ${act.currency} into ${fx(r.gotUst, 2)} USDT`;
       interrupted = r.interrupted;
@@ -430,13 +435,14 @@ export async function runTick(d: { ex: Exchange; store: Store; now?: number; pol
         state = { ...state, ignoredOthers: [...state.ignoredOthers, `${act.currency}:${act.amount.toFixed(4)}`].slice(-20) };
       }
     } else if (act.kind === "sweep") {
-      const r = await sweepUst({ ex, into: act.into, ust: act.ust, chunkUsd: cfg.chunkUsd, onFill, ...(d.pollMs !== undefined ? { pollMs: d.pollMs } : {}) });
+      const r = await sweepUst({ ex, into: act.into, ust: act.ust, chunkUsd: cfg.chunkUsd, onFill, shouldStop, ...(d.pollMs !== undefined ? { pollMs: d.pollMs } : {}) });
       stranded = r.strandedUst;
       summary = `Swept ${fx(r.spentUst, 2)} USDT into ${act.into.toUpperCase()} (${fx(r.bought, act.into === "btc" ? 8 : 6)} bought)`;
       interrupted = r.interrupted;
       kind = "swept";
-      if (act.idle && r.bought <= 0) {
-        // Too small for the pair's minimum order: leave it alone until the USDT balance changes.
+      if (r.bought <= 0) {
+        // Too small for the pair's minimum order: park it (stranded or idle) so it cannot block a rotation,
+        // until the USDT balance changes.
         state = { ...state, ignoredOthers: [...state.ignoredOthers, `USDT:${wallets.ustAvail.toFixed(2)}`].slice(-20) };
       }
     } else {
@@ -446,6 +452,7 @@ export async function runTick(d: { ex: Exchange; store: Store; now?: number; pol
         amount: act.kind === "to_btc" ? act.xmr : act.btc,
         chunkUsd: cfg.chunkUsd,
         onFill,
+        shouldStop,
         ...(d.pollMs !== undefined ? { pollMs: d.pollMs } : {}),
       });
       stranded = r.strandedUst;

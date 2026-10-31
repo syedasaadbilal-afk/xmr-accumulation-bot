@@ -27,6 +27,8 @@ export interface FakeOpts {
   ust?: number;
   usd?: number;
   prices?: Record<string, number>;
+  /** Minimum order size per symbol (default tiny). */
+  mins?: Record<string, number>;
   xmrUst?: number;
   btcUst?: number;
   mode?: "DRY_RUN" | "LIVE";
@@ -43,11 +45,13 @@ export class FakeExchange implements Exchange {
   btcUst: number;
   closes: number[];
   prices: Record<string, number>;
+  mins: Record<string, number>;
 
   constructor(o: FakeOpts) {
     this.runMode = o.mode ?? "LIVE";
     this.wallets = { XMR: o.xmr ?? 0, BTC: o.btc ?? 0, UST: o.ust ?? 0, ...(o.usd !== undefined ? { USD: o.usd } : {}) };
     this.prices = o.prices ?? {};
+    this.mins = o.mins ?? {};
     this.xmrUst = o.xmrUst ?? 4000;
     this.btcUst = o.btcUst ?? 100000;
     this.closes = o.closes;
@@ -61,7 +65,7 @@ export class FakeExchange implements Exchange {
     return { bid: p * 0.9999, ask: p * 1.0001, last: p };
   }
   async getMinOrderSize(symbol: string): Promise<number> {
-    return symbol === "tUSTUSD" ? 2 : 0.00001;
+    return this.mins[symbol] ?? (symbol === "tUSTUSD" ? 2 : 0.00001);
   }
   private priceOf(symbol: string): number {
     if (symbol === "tXMRUST") return this.xmrUst;
