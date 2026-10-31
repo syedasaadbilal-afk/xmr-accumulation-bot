@@ -4,12 +4,15 @@ import { cagrPct, card, fmtDate, fmtPct, fmtTs, h3, num, pctCls } from "../forma
 const KIND: Record<ExecutionDto["kind"], string> = {
   to_btc: "Entry (XMR → BTC)",
   to_xmr: "Exit (BTC → XMR)",
+  to_usdt: "Park (XMR reserve → USDT)",
+  reserve_xmr: "XMR reserve (BTC → XMR)",
+  convert_ust: "Convert (other balance → USDT)",
   sweep_btc: "Sweep (USDT → BTC)",
   sweep_xmr: "Sweep (USDT → XMR)",
 };
 
 function amt(asset: string | null, v: number): string {
-  return asset === null ? "-" : `${v.toFixed(asset === "BTC" ? 6 : 4)} ${asset}`;
+  return asset === null ? "-" : `${v.toFixed(asset === "BTC" ? 6 : asset === "USDT" ? 2 : 4)} ${asset}`;
 }
 
 function Executions({ rows }: { rows: ExecutionDto[] }) {

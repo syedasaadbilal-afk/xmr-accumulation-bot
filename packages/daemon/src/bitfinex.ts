@@ -105,7 +105,8 @@ type FetchLike = typeof fetch;
 
 /** Marketable limit price string, in the format Bitfinex accepts. */
 export function priceString(px: number): string {
-  return px >= 1 ? px.toFixed(2) : px.toFixed(8);
+  // Bitfinex allows 5 significant digits: 2 decimals from 10 up, 4 decimals for 1-10 (stablecoin pairs), 8 below.
+  return px >= 10 ? px.toFixed(2) : px >= 1 ? px.toFixed(4) : px.toFixed(8);
 }
 
 export class BitfinexExchange implements Exchange {

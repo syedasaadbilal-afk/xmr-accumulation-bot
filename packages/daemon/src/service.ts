@@ -1,6 +1,6 @@
 import type { DatabaseSyncLike } from "./db/types.js";
 import { BitfinexExchange, type Exchange } from "./bitfinex.js";
-import { analyze, runTick, tradesFor, walletView, type TickResult } from "./engine.js";
+import { analyze, parkedUst, runTick, tradesFor, walletView, type TickResult } from "./engine.js";
 import { BTC_UST, XMR_BTC, XMR_UST } from "./execute.js";
 import { hasSecrets, readSecrets } from "./secrets.js";
 import { Store, type DepositRow, type SnapshotRow } from "./store.js";
@@ -108,7 +108,7 @@ export class XmrService {
         ? (() => {
             const btcX = wallets.btc / price;
             const total = wallets.xmr + btcX;
-            if (total <= 0) return "EMPTY";
+            if (total <= 0) return wallets.ustAvail > 1 ? "USDT" : "EMPTY";
             return btcX / total > 0.9 ? "BTC" : wallets.xmr / total > 0.9 ? "XMR" : "MIXED";
           })()
         : null;
@@ -123,7 +123,7 @@ export class XmrService {
       usdPerBtc,
       wallets,
       walletRows,
-      equityXmr: wallets && price ? wallets.xmr + wallets.btc / price : null,
+      equityXmr: wallets && price && usdPerXmr ? wallets.xmr + wallets.btc / price + parkedUst(wallets, cfg, state.strandedUst, usdPerXmr) / usdPerXmr : null,
       holding,
       desired: analysis ? (analysis.desiredBtc ? "BTC" : "XMR") : null,
       desiredUncapped: analysis ? (analysis.desiredBtcUncapped ? "BTC" : "XMR") : null,

@@ -11,6 +11,8 @@ export const fmtDate = (s: number | null) => (s === null ? "-" : new Date(s * 10
 export const fmtTs = (ms: number | null) => (ms === null ? "-" : new Date(ms).toISOString().replace("T", " ").slice(0, 16));
 export const fmtPct = (n: number | null | undefined) => (n === null || n === undefined ? "-" : `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`);
 export const pctCls = (n: number | null | undefined) => (n === null || n === undefined ? "text-slate-500" : n >= 0 ? "text-emerald-400" : "text-red-400");
+/** Cents, rounded DOWN (matches what Bitfinex shows; 499.996 is 499.99, not 500.00). */
+export const floor2 = (n: number) => (Math.floor(n * 100 + 1e-6) / 100).toFixed(2);
 export const num = (n: number | null | undefined, d = 4) => (n === null || n === undefined ? "-" : n.toFixed(d));
 
 /**

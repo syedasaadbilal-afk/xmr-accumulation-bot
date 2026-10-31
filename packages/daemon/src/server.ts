@@ -62,7 +62,7 @@ export async function createServer(opts: CreateServerOptions) {
     const c = parsed.config;
     service.store.addEvent(
       "config",
-      `Config saved: enabled=${c.enabled}, mode=${c.mode}, chunk $${c.chunkUsd}, strategy cap ${c.strategyCap.enabled ? `${c.strategyCap.maxDistPct}%` : "off"}, new-money cap ${c.newMoneyCap.enabled ? `${c.newMoneyCap.maxDistPct}% (lump >= ${c.newMoneyCap.minLumpPct}%)` : "off"}, position cap ${c.positionCapXmr > 0 ? `${c.positionCapXmr} XMR` : "off"}`
+      `Config saved: enabled=${c.enabled}, mode=${c.mode}, chunk $${c.chunkUsd}, USDT reserve ${c.usdtReserve > 0 ? `$${c.usdtReserve}` : "off"}, strategy cap ${c.strategyCap.enabled ? `${c.strategyCap.maxDistPct}%` : "off"}, new-money cap ${c.newMoneyCap.enabled ? `${c.newMoneyCap.maxDistPct}% (lump >= ${c.newMoneyCap.minLumpPct}%)` : "off"}, position cap ${c.positionCapXmr > 0 ? `${c.positionCapXmr} XMR` : "off"}`
     );
     if (before.mode !== c.mode) console.log(`[xmr] mode changed ${before.mode} -> ${c.mode}`);
     return { ok: true };
