@@ -408,6 +408,48 @@ describe("runTick", () => {
     expect(ex.wallets["BTC"]!).toBeLessThan(0.001);
   });
 
+  it("LIVE: with real exchange minimums the last BTC reserve gap closes once and then the bot stays idle", async () => {
+    const NOWD = nowAfter(DOWN_CLOSES.length);
+    const store = newStore();
+    store.setConfig(cfg({ chunkUsd: 2000, minTradeUsd: 1, btcReserve: 0.05, xautReserve: 0.5 }));
+    const mins = { tXMRUST: 0.02, tBTCUST: 0.00004, "tXAUT:UST": 0.002 };
+    const ex = new FakeExchange({ closes: DOWN_CLOSES, xmr: 5, btc: 0.04999, prices: { XAUT: 4000 }, mins });
+    let last = "";
+    for (let k = 0; k < 12 && last !== "idle"; k++) last = (await runTick({ ex, store, now: NOWD + k * 60_000, pollMs: 0 })).action;
+    expect(last).toBe("idle");
+    const pot = ex.wallets["BTC"]! + (ex.wallets["XAUT"]! * 4000) / 100_000;
+    expect(pot).toBeGreaterThanOrEqual(0.05 - 1e-6);
+    const orders = ex.orders.length;
+    for (let k = 20; k < 26; k++) expect((await runTick({ ex, store, now: NOWD + k * 60_000, pollMs: 0 })).action).toBe("idle");
+    expect(ex.orders.length).toBe(orders); // no ping-pong between XMR and BTC
+  });
+
+  it("LIVE: a transfer that happens during a rotation is logged as a withdrawal, not absorbed", async () => {
+    const store = newStore();
+    store.setConfig(cfg({ chunkUsd: 5000, minTradeUsd: 100 }));
+    const ex = new FakeExchange({ closes: UP_CLOSES, xmr: 4 }); // ~ $16,000, strategy wants BTC: 4 chunks
+    const orig = ex.submitOrder.bind(ex);
+    let n = 0;
+    ex.submitOrder = async (o) => {
+      const r = await orig(o);
+      if (++n === 3) ex.wallets["BTC"] = (ex.wallets["BTC"] ?? 0) - 0.01; // 0.01 BTC (~$1,000) leaves mid-rotation
+      return r;
+    };
+    const r1 = await runTick({ ex, store, now: NOW, pollMs: 0 });
+    expect(r1.action).toBe("rotated");
+    const deps = store.deposits();
+    expect(deps).toHaveLength(1);
+    expect(deps[0]!.asset).toBe("BTC");
+    expect(deps[0]!.amount).toBeCloseTo(-0.01, 6);
+    expect(deps[0]!.action).toContain("withdrawal");
+    // and the bot's own trades alone are never logged as deposits
+    const store2 = newStore();
+    store2.setConfig(cfg({ chunkUsd: 5000, minTradeUsd: 100 }));
+    const ex2 = new FakeExchange({ closes: UP_CLOSES, xmr: 4 });
+    await runTick({ ex: ex2, store: store2, now: NOW, pollMs: 0 });
+    expect(store2.deposits()).toHaveLength(0);
+  });
+
   it("LIVE: USD and other coins are converted to USDT, then swept into the strategy asset", async () => {
     const store = newStore();
     store.setConfig(cfg({ chunkUsd: 5000, minTradeUsd: 1 }));

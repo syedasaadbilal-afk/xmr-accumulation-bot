@@ -312,11 +312,11 @@ export function planTick(i: PlanInput): Plan {
         why = ` (position cap ${cfg.positionCapXmr} XMR)`;
       }
     }
-    if (sell * i.usdPerXmr >= cfg.minTradeUsd) action = { kind: "to_btc", xmr: sell };
+    if (sell >= MIN_XMR_SELL && sell * i.usdPerXmr >= cfg.minTradeUsd) action = { kind: "to_btc", xmr: sell }; // below the exchange minimum order nothing can be sold
     else action = { kind: "none", why: heldBack > 0 ? `holding BTC; ${heldBack.toFixed(4)} XMR held back by the new-money cap` : `holding BTC${why}; nothing to convert` };
   } else {
     const sellBtc = Math.max(0, w.btcAvail - btcHold);
-    if (sellBtc * i.usdPerBtc >= cfg.minTradeUsd) action = { kind: "to_xmr", btc: sellBtc };
+    if (sellBtc * i.usdPerBtc >= Math.max(cfg.minTradeUsd, MIN_XMR_SELL * i.usdPerXmr * 1.02)) action = { kind: "to_xmr", btc: sellBtc }; // the XMR buy must reach the exchange minimum
     else action = { kind: "none", why: bres > 0 ? "holding XMR; the BTC reserve stays in BTC" : "holding XMR; nothing to convert" };
   }
   return { deposits, heldBackXmr: heldBack, clearStranded, action, notes };
@@ -454,8 +454,11 @@ export async function runTick(d: { ex: Exchange; store: Store; now?: number; pol
     // ---- LIVE ----
     // Reserve moves and idle-USDT sweeps are tagged "usdt:" so they never pose as trade entries/exits.
     const rotationId = act.kind === "convert_other" || (act.kind === "sweep" && act.idle) ? `usdt:${now}` : act.kind === "reserve_btc" ? `xres:${now}` : act.kind === "reserve_xaut" || act.kind === "release_xaut" ? `xaut:${now}` : String(now);
-    const onFill = (f: { symbol: string; side: "buy" | "sell"; base: number; price: number }) =>
+    const ownFills: Array<{ symbol: string; side: "buy" | "sell"; base: number; price: number }> = [];
+    const onFill = (f: { symbol: string; side: "buy" | "sell"; base: number; price: number }) => {
+      ownFills.push(f);
       store.addFill({ ts: Date.now(), rotationId, symbol: f.symbol, side: f.side, base: f.base, price: f.price });
+    };
     store.addEvent("rotation_start", `Converting ${describe}`, { regime: a.last.regime, dist: a.last.dist }, now);
 
     // Re-read the run mode before every new order so PAUSED / DRY_RUN stops a rotation that is already running.
@@ -511,6 +514,22 @@ export async function runTick(d: { ex: Exchange; store: Store; now?: number; pol
     // New baseline = wallets after our own trades, so they are never mistaken for deposits.
     try {
       const after = walletView(await ex.getWallets());
+      // Anything beyond our own fills that changed during the rotation (a transfer in or out) is logged, not absorbed.
+      const net = (sym: string) => ownFills.filter((f) => f.symbol === sym).reduce((t, f) => t + (f.side === "buy" ? f.base : -f.base), 0);
+      const notionalUsd = ownFills.reduce((t, f) => t + f.base * f.price, 0);
+      const tolUsd = Math.max(cfg.minTradeUsd, 0.003 * notionalUsd);
+      const dA = after.xmr - (wallets.xmr + net(XMR_UST));
+      const dB = after.btc - (wallets.btc + net(BTC_UST));
+      for (const [asset, amt, usd, val] of [
+        ["XMR", dA, xmrUst.last, dA] as const,
+        ["BTC", dB, btcUst.last, dB / price] as const,
+      ]) {
+        if (Math.abs(amt) * usd >= tolUsd) {
+          const what = amt < 0 ? "withdrawal (seen during a rotation)" : "deposit (seen during a rotation)";
+          store.addDeposit({ ts: Date.now(), asset, amount: amt, valueXmr: val, dist: a.last.dist, action: what });
+          store.addEvent("deposit", `${amt > 0 ? "Deposit" : "Withdrawal"} seen: ${fx(Math.abs(amt), 6)} ${asset} - ${what}`, undefined, Date.now());
+        }
+      }
       state = { ...state, snapshot: { xmr: after.xmr, btc: after.btc, at: Date.now() } };
     } catch {
       state = { ...state, snapshot: null };

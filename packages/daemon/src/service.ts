@@ -122,7 +122,7 @@ export class XmrService {
     return {
       configured,
       config: cfg,
-      state: { heldBackXmr: state.heldBackXmr, strandedUst: state.strandedUst, lastResult: state.lastResult, lastTickAt: state.lastTickAt },
+      state: { heldBackXmr: state.heldBackXmr, strandedUst: state.strandedUst, lastResult: state.lastResult, lastTickAt: state.lastTickAt, perfSince: state.perfSince },
       error,
       price,
       usdPerXmr,
@@ -161,7 +161,7 @@ export class XmrService {
         closed: trades.filter((t) => t.status === "closed").length,
         wins: trades.filter((t) => t.status === "closed" && (t.xmrReturnPct ?? 0) > 0).length,
         signalXmrReturnPct: trades.length ? compound(trades.map((t) => t.xmrReturnPct)) : 0,
-        accountXmrReturnPct: twrXmrPct(snaps, deposits),
+        accountXmrReturnPct: twrXmrPct(state.perfSince ? snaps.filter((x) => x.ts >= (state.perfSince as number)) : snaps, deposits),
         actualClosed: actualClosed.length,
         actualWins: actualClosed.filter((t) => (t.actual?.pnlXmr ?? 0) > 0).length,
         actualNetPnlXmr: trades.reduce((s, t) => s + (t.actual?.pnlXmr ?? 0), 0),

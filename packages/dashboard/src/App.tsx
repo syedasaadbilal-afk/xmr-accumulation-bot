@@ -43,7 +43,7 @@ export default function App() {
     <div className="min-h-screen bg-ink-950 text-slate-100">
       <TopNav active={tab} onChange={setTab} unit={unit} onUnitChange={setUnit} />
       {tab === "status" && <StatusTab status={status} unit={unit} runningNow={runningNow} onRunNow={handleRunNow} onModeChange={handleModeChange} />}
-      {tab === "timeline" && <TimelineTab status={status} />}
+      {tab === "timeline" && <TimelineTab status={status} reload={reload} />}
       {tab === "config" && <ConfigTab status={status} reload={reload} />}
     </div>
   );

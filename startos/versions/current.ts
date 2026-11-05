@@ -1,9 +1,9 @@
 import { IMPOSSIBLE, VersionInfo } from '@start9labs/start-sdk'
 export const current = VersionInfo.of({
-  version: '0.1.7:0',
+  version: '0.1.9:0',
   releaseNotes: {
     en_US:
-      'The second reserve is now XAUT instead of USDT: part of the BTC reserve can be held as XAUT (bought with BTC through USDT, one order at a time) and is converted back to BTC when lowered or when the Use it tick box is switched off. Status shows the XAUT held.',
+      'A transfer in or out of the account while a rotation is running is now logged as a deposit or withdrawal instead of being absorbed into the new baseline. Leftovers below the exchange minimum order are no longer converted. Status has a reset to 0 link that restarts the since-start percentage from now, and the Timeline tab has a form to record a transfer the bot missed. The XAUT dust line on Status only shows from 0.0001 XAUT.',
   },
   migrations: { up: async ({ effects }) => {}, down: IMPOSSIBLE },
 })

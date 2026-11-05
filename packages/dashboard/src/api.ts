@@ -60,7 +60,7 @@ export interface ExecutionDto {
 export interface StatusDto {
   configured: boolean;
   config: BotConfigDto;
-  state: { heldBackXmr: number; strandedUst: number; lastResult: { action: string; detail: string; at: number } | null; lastTickAt: number | null };
+  state: { heldBackXmr: number; strandedUst: number; lastResult: { action: string; detail: string; at: number } | null; lastTickAt: number | null; perfSince: number | null };
   error: string | null;
   price: number | null;
   usdPerXmr: number | null;
@@ -119,6 +119,8 @@ async function send(method: "PUT" | "POST", url: string, body?: unknown): Promis
 export const saveConfig = (c: BotConfigDto) => send("PUT", "/api/config", c);
 export const saveSecrets = (apiKey: string, apiSecret: string) => send("PUT", "/api/secrets", { apiKey, apiSecret });
 export const runNow = () => send("POST", "/api/run-now");
+export const resetPerformance = () => send("POST", "/api/reset-performance");
+export const recordTransfer = (asset: string, amount: number, ts: number) => send("POST", "/api/transfer", { asset, amount, ts });
 export const clearHeldBack = () => send("POST", "/api/clear-held-back");
 
 export const setMode = (mode: "DRY_RUN" | "LIVE" | "PAUSED") => send("PUT", "/api/mode", { mode });

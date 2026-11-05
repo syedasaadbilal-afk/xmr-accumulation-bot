@@ -1,5 +1,6 @@
-import type { ExecutionDto, StatusDto, TradeDto } from "../api.js";
-import { cagrPct, card, fmtDate, fmtPct, fmtTs, h3, num, pctCls } from "../format.js";
+import { useState } from "react";
+import { recordTransfer, type ExecutionDto, type StatusDto, type TradeDto } from "../api.js";
+import { btnCls, cagrPct, card, fmtDate, fmtPct, fmtTs, h3, inputCls, num, pctCls } from "../format.js";
 
 const KIND: Record<ExecutionDto["kind"], string> = {
   to_btc: "Entry (XMR → BTC)",
@@ -101,8 +102,51 @@ function TradeBlock({ t, n }: { t: TradeDto; n: number }) {
   );
 }
 
+
+/** Records a deposit or withdrawal the bot did not see (for example a transfer made while a rotation was running). */
+function TransferForm({ reload }: { reload?: () => Promise<void> }) {
+  const [dir, setDir] = useState<"withdrawal" | "deposit">("withdrawal");
+  const [asset, setAsset] = useState("XMR");
+  const [amt, setAmt] = useState("");
+  const [when, setWhen] = useState(() => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16));
+  const [note, setNote] = useState<string | undefined>(undefined);
+  async function save() {
+    const n = Number(amt);
+    if (!(n > 0)) {
+      setNote("Enter an amount above 0.");
+      return;
+    }
+    const r = await recordTransfer(asset, dir === "withdrawal" ? -n : n, new Date(when).getTime());
+    setNote(r.ok ? "Recorded." : (r.error ?? "Could not record"));
+    if (r.ok) {
+      setAmt("");
+      if (reload) await reload();
+    }
+  }
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-800 flex flex-wrap items-center gap-3 text-sm">
+      <span className="text-slate-400">Add a transfer the bot missed:</span>
+      <select className={inputCls} value={dir} onChange={(e) => setDir(e.target.value as "withdrawal" | "deposit")}>
+        <option value="withdrawal">Withdrawal</option>
+        <option value="deposit">Deposit</option>
+      </select>
+      <input className={`${inputCls} w-28`} placeholder="amount" value={amt} onChange={(e) => setAmt(e.target.value)} />
+      <select className={inputCls} value={asset} onChange={(e) => setAsset(e.target.value)}>
+        <option value="XMR">XMR</option>
+        <option value="BTC">BTC</option>
+      </select>
+      <input className={inputCls} type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
+      <button className={btnCls} onClick={() => void save()}>
+        Record
+      </button>
+      {note && <span className="text-slate-400">{note}</span>}
+      <span className="w-full text-xs text-slate-500">Use the time shown in your Bitfinex movements or ledger (your local time). It only corrects the since-start percentage; it does not touch your wallet.</span>
+    </div>
+  );
+}
+
 /** Timeline tab, same sections as the BTC Yield Autopilot: executions, trades (signal vs actual), then the logs. */
-export function TimelineTab({ status }: { status: StatusDto | undefined }) {
+export function TimelineTab({ status, reload }: { status: StatusDto | undefined; reload?: () => Promise<void> }) {
   if (!status) return <div className="text-slate-500 p-6">Loading...</div>;
   const s = status;
   const sm = s.summary;
@@ -194,6 +238,7 @@ export function TimelineTab({ status }: { status: StatusDto | undefined }) {
             </tbody>
           </table>
         </div>
+        <TransferForm reload={reload} />
       </div>
 
       <div className={card}>

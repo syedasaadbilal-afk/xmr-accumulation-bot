@@ -65,6 +65,8 @@ export interface BotState {
   lastWouldKey: string | null;
   /** Other-currency balances the bot could not convert ("CUR:amount"); retried when the balance changes. */
   ignoredOthers: string[];
+  /** The since-start percentage counts from this time (ms); null = from the first snapshot. */
+  perfSince: number | null;
 }
 
 export const DEFAULT_STATE: BotState = {
@@ -75,6 +77,7 @@ export const DEFAULT_STATE: BotState = {
   lastTickAt: null,
   lastWouldKey: null,
   ignoredOthers: [],
+  perfSince: null,
 };
 
 const isNum = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
