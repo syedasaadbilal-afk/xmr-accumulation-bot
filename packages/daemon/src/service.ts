@@ -1,7 +1,7 @@
 import type { DatabaseSyncLike } from "./db/types.js";
 import { BitfinexExchange, type Exchange } from "./bitfinex.js";
 import { analyze, parkedUst, runTick, tradesFor, walletView, type TickResult } from "./engine.js";
-import { BTC_UST, XMR_BTC, XMR_UST } from "./execute.js";
+import { BTC_UST, XAUT_UST, XMR_BTC, XMR_UST } from "./execute.js";
 import { hasSecrets, readSecrets } from "./secrets.js";
 import { Store, type DepositRow, type SnapshotRow } from "./store.js";
 import { attachActual, buildExecutions } from "./timeline.js";
@@ -73,6 +73,7 @@ export class XmrService {
     let price: number | null = null;
     let usdPerXmr: number | null = null;
     let usdPerBtc: number | null = null;
+    let usdPerXaut: number | null = null;
     let wallets: ReturnType<typeof walletView> | null = null;
     let walletRows: Array<{ type: string; currency: string; balance: number; availableBalance: number }> | null = null;
     try {
@@ -82,6 +83,11 @@ export class XmrService {
       price = t1.last;
       usdPerXmr = t2.last;
       usdPerBtc = t3.last;
+      try {
+        usdPerXaut = (await pub.getTicker(XAUT_UST)).last;
+      } catch {
+        usdPerXaut = null; // only needed for XAUT held as the secondary reserve
+      }
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -121,9 +127,10 @@ export class XmrService {
       price,
       usdPerXmr,
       usdPerBtc,
+      usdPerXaut,
       wallets,
       walletRows,
-      equityXmr: wallets && price && usdPerXmr ? wallets.xmr + wallets.btc / price + parkedUst(wallets, cfg, state.strandedUst, usdPerXmr) / usdPerXmr : null,
+      equityXmr: wallets && price && usdPerXmr ? wallets.xmr + wallets.btc / price + parkedUst(wallets, state.strandedUst) / usdPerXmr + ((wallets.xaut ?? 0) * (usdPerXaut ?? 0)) / usdPerXmr : null,
       holding,
       desired: analysis ? (analysis.desiredBtc ? "BTC" : "XMR") : null,
       desiredUncapped: analysis ? (analysis.desiredBtcUncapped ? "BTC" : "XMR") : null,

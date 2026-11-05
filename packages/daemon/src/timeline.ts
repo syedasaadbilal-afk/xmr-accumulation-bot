@@ -3,15 +3,16 @@ import type { FillRow } from "./store.js";
 
 const XMR_SYM = "tXMRUST";
 const BTC_SYM = "tBTCUST";
+const XAUT_SYM = "tXAUT:UST";
 
 export interface Execution {
   rotationId: string;
   ts: number;
-  kind: "to_btc" | "to_xmr" | "to_usdt" | "reserve_xmr" | "convert_ust" | "sweep_btc" | "sweep_xmr";
+  kind: "to_btc" | "to_xmr" | "to_usdt" | "reserve_btc" | "reserve_xaut" | "release_xaut" | "convert_ust" | "sweep_btc" | "sweep_xmr";
   /** Asset amounts that left / arrived in this rotation. */
-  soldAsset: "XMR" | "BTC" | null;
+  soldAsset: "XMR" | "BTC" | "XAUT" | null;
   sold: number;
-  boughtAsset: "XMR" | "BTC" | "USDT";
+  boughtAsset: "XMR" | "BTC" | "XAUT" | "USDT";
   bought: number;
   /** Average fill prices in USDT, when that leg filled. */
   xmrUsd: number | null;
@@ -56,12 +57,27 @@ export function buildExecutions(fills: FillRow[]): Execution[] {
     let sold = 0;
     let boughtAsset: Execution["boughtAsset"];
     let bought = 0;
-    if (rotationId.startsWith("xres:")) {
-      kind = "reserve_xmr";
-      soldAsset = "BTC";
-      sold = b.sell.base;
-      boughtAsset = "XMR";
-      bought = x.buy.base;
+    const xa = legsOf(fs, XAUT_SYM);
+    if (rotationId.startsWith("xaut:")) {
+      if (xa.sell.base > 0) {
+        kind = "release_xaut";
+        soldAsset = "XAUT";
+        sold = xa.sell.base;
+        boughtAsset = "BTC";
+        bought = b.buy.base;
+      } else {
+        kind = "reserve_xaut";
+        soldAsset = "BTC";
+        sold = b.sell.base;
+        boughtAsset = "XAUT";
+        bought = xa.buy.base;
+      }
+    } else if (rotationId.startsWith("xres:")) {
+      kind = "reserve_btc";
+      soldAsset = "XMR";
+      sold = x.sell.base;
+      boughtAsset = "BTC";
+      bought = b.buy.base;
     } else if (rotationId.startsWith("usdt:") && x.sell.base + b.sell.base + x.buy.base + b.buy.base === 0) {
       // USD / other coin converted into USDT
       kind = "convert_ust";
@@ -142,8 +158,8 @@ function ratioOf(btcUsd: number, btcBase: number, xmrUsd: number, xmrBase: numbe
  * XMR buys from the exit until the next trade starts. `mark` = BTC priced in XMR now.
  */
 export function attachActual(trades: MirrorTrade[], allFills: FillRow[], mark: number | null): TradeRow[] {
-  // Reserve moves (USDT parking, idle-USDT sweeps, XMR reserve building) are not trade entries or exits.
-  const fills = allFills.filter((f) => !/^(usdt|xres):/.test(f.rotationId));
+  // Reserve moves (USDT parking, idle-USDT sweeps, BTC reserve building) are not trade entries or exits.
+  const fills = allFills.filter((f) => !/^(usdt|xres|xaut):/.test(f.rotationId));
   const asc = [...trades].sort((a, b) => a.entryTime - b.entryTime);
   const rows: TradeRow[] = asc.map((t, i) => {
     const entryFrom = t.entryTime * 1000;

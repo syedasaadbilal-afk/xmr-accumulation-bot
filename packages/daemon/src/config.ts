@@ -26,13 +26,15 @@ export interface BotConfig {
   minTradeUsd: number;
   /** Max XMR-equivalent allowed to sit in BTC at once. 0 = no limit. */
   positionCapXmr: number;
-  /** XMR pot kept out of the strategy. Built from BTC when short. 0 = off. */
-  xmrReserve: number;
+  /** Tick box: reserves are only applied while this is on (the amounts are kept when it is off). */
+  reservesEnabled: boolean;
+  /** BTC pot kept out of the strategy. Built from XMR when short. 0 = off. */
+  btcReserve: number;
   /**
-   * USDT to park, carved out of the XMR reserve only (the strategy position is never sold for it).
-   * Has no effect while xmrReserve is 0. Capped at the value of the XMR reserve.
+   * XAUT to hold as part of the BTC reserve (bought with BTC from the pot, via USDT).
+   * Has no effect while btcReserve is 0. Capped at the value of the BTC reserve.
    */
-  usdtReserve: number;
+  xautReserve: number;
   strategyCap: { enabled: boolean; maxDistPct: number };
   newMoneyCap: { enabled: boolean; maxDistPct: number; minLumpPct: number };
 }
@@ -43,8 +45,9 @@ export const DEFAULT_CONFIG: BotConfig = {
   chunkUsd: 2000,
   minTradeUsd: 25,
   positionCapXmr: 0,
-  xmrReserve: 0,
-  usdtReserve: 0,
+  reservesEnabled: true,
+  btcReserve: 0,
+  xautReserve: 0,
   strategyCap: { enabled: false, maxDistPct: 5 },
   newMoneyCap: { enabled: false, maxDistPct: 5, minLumpPct: 0 },
 };
@@ -85,10 +88,11 @@ export function parseConfig(b: unknown): { config: BotConfig } | { error: string
   if (!isNum(x.chunkUsd) || x.chunkUsd < 10 || x.chunkUsd > 1_000_000) return { error: "chunkUsd must be between 10 and 1,000,000" };
   if (!isNum(x.minTradeUsd) || x.minTradeUsd < 1 || x.minTradeUsd > 100_000) return { error: "minTradeUsd must be between 1 and 100,000" };
   if (!isNum(x.positionCapXmr) || x.positionCapXmr < 0) return { error: "positionCapXmr must be 0 (no limit) or more" };
-  const reserve = x.usdtReserve === undefined ? 0 : x.usdtReserve;
-  if (!isNum(reserve) || reserve < 0 || reserve > 100_000_000) return { error: "usdtReserve must be 0 (off) or more" };
-  const xres = x.xmrReserve === undefined ? 0 : x.xmrReserve;
-  if (!isNum(xres) || xres < 0 || xres > 1_000_000) return { error: "xmrReserve must be 0 (off) or more" };
+  const xaut = x.xautReserve === undefined ? 0 : x.xautReserve;
+  if (!isNum(xaut) || xaut < 0 || xaut > 1_000_000) return { error: "xautReserve must be 0 (off) or more" };
+  const bres = x.btcReserve === undefined ? 0 : x.btcReserve;
+  if (!isNum(bres) || bres < 0 || bres > 100_000) return { error: "btcReserve must be 0 (off) or more" };
+  if (x.reservesEnabled !== undefined && typeof x.reservesEnabled !== "boolean") return { error: "reservesEnabled must be true or false" };
   const s = x.strategyCap;
   if (!s || typeof s.enabled !== "boolean" || !isNum(s.maxDistPct) || s.maxDistPct <= 0 || s.maxDistPct > 100) {
     return { error: "strategyCap needs enabled and maxDistPct in (0, 100]" };
@@ -104,8 +108,9 @@ export function parseConfig(b: unknown): { config: BotConfig } | { error: string
       chunkUsd: x.chunkUsd,
       minTradeUsd: x.minTradeUsd,
       positionCapXmr: x.positionCapXmr,
-      xmrReserve: xres,
-      usdtReserve: reserve,
+      reservesEnabled: x.reservesEnabled ?? true,
+      btcReserve: bres,
+      xautReserve: xaut,
       strategyCap: { enabled: s.enabled, maxDistPct: s.maxDistPct },
       newMoneyCap: { enabled: n.enabled, maxDistPct: n.maxDistPct, minLumpPct: n.minLumpPct },
     },

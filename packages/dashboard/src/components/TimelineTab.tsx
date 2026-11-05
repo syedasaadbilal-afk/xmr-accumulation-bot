@@ -4,8 +4,10 @@ import { cagrPct, card, fmtDate, fmtPct, fmtTs, h3, num, pctCls } from "../forma
 const KIND: Record<ExecutionDto["kind"], string> = {
   to_btc: "Entry (XMR → BTC)",
   to_xmr: "Exit (BTC → XMR)",
-  to_usdt: "Park (XMR reserve → USDT)",
-  reserve_xmr: "XMR reserve (BTC → XMR)",
+  to_usdt: "Park (reserve → USDT)",
+  reserve_xaut: "XAUT reserve (BTC → XAUT)",
+  release_xaut: "XAUT released (XAUT → BTC)",
+  reserve_btc: "BTC reserve (XMR → BTC)",
   convert_ust: "Convert (other balance → USDT)",
   sweep_btc: "Sweep (USDT → BTC)",
   sweep_xmr: "Sweep (USDT → XMR)",

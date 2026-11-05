@@ -96,7 +96,7 @@ export function StatusTab({
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <MetricTile label="USDT held (live)" value={w ? floor2(w.ustAvail) : "-"} sublabel={s.state.strandedUst > 0 ? `${floor2(s.state.strandedUst)} waiting to be swept` : undefined} />
-        <MetricTile label="BTC held (live)" value={w ? w.btc.toFixed(8) : "-"} />
+        <MetricTile label="BTC held (live)" value={w ? w.btc.toFixed(8) : "-"} sublabel={w && (w.xaut ?? 0) > 0 ? `plus ${(w.xaut ?? 0).toFixed(4)} XAUT (reserve)` : undefined} />
         <MetricTile label="XMR held (live)" value={w ? w.xmr.toFixed(6) : "-"} />
         <MetricTile label="XMR held back" value={num(s.caps.newMoney.heldBackXmr, 6)} sublabel="by the new-money cap" valueColor={s.caps.newMoney.heldBackXmr > 0 ? "text-amber-400" : "text-slate-100"} />
       </div>
@@ -113,8 +113,8 @@ export function StatusTab({
         />
         <MetricTile
           label="Reserves"
-          value={s.config.xmrReserve > 0 ? `${s.config.xmrReserve} XMR` : "off"}
-          sublabel={s.config.xmrReserve > 0 ? (s.config.usdtReserve > 0 ? `of which ${s.config.usdtReserve} USDT parked (${w ? floor2(w.ustAvail) : "-"} now)` : "no USDT carve-out") : undefined}
+          value={s.config.reservesEnabled && s.config.btcReserve > 0 ? `${s.config.btcReserve} BTC` : "off"}
+          sublabel={s.config.reservesEnabled && s.config.btcReserve > 0 ? (s.config.xautReserve > 0 ? `of which ${s.config.xautReserve} XAUT (${w?.xaut !== undefined ? w.xaut.toFixed(4) : "-"} held now)` : "no XAUT carve-out") : undefined}
         />
         <MetricTile label="Position cap" value={s.config.positionCapXmr > 0 ? `${s.config.positionCapXmr} XMR` : "off"} />
         <MetricTile label="Strategy XMR gain" value={fmtPct(s.summary.signalXmrReturnPct)} valueColor={pctCls(s.summary.signalXmrReturnPct)} sublabel={`chart signals, cumulative · CAGR ${fmtPct(cagrPct(s.summary.signalXmrReturnPct, s.trades[s.trades.length - 1]?.entryTime ?? null))}`} />

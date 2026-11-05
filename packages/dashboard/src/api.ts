@@ -6,8 +6,9 @@ export interface BotConfigDto {
   chunkUsd: number;
   minTradeUsd: number;
   positionCapXmr: number;
-  xmrReserve: number;
-  usdtReserve: number;
+  reservesEnabled: boolean;
+  btcReserve: number;
+  xautReserve: number;
   strategyCap: { enabled: boolean; maxDistPct: number };
   newMoneyCap: { enabled: boolean; maxDistPct: number; minLumpPct: number };
 }
@@ -45,10 +46,10 @@ export interface TradeDto {
 export interface ExecutionDto {
   rotationId: string;
   ts: number;
-  kind: "to_btc" | "to_xmr" | "to_usdt" | "reserve_xmr" | "convert_ust" | "sweep_btc" | "sweep_xmr";
-  soldAsset: "XMR" | "BTC" | null;
+  kind: "to_btc" | "to_xmr" | "to_usdt" | "reserve_btc" | "reserve_xaut" | "release_xaut" | "convert_ust" | "sweep_btc" | "sweep_xmr";
+  soldAsset: "XMR" | "BTC" | "XAUT" | null;
   sold: number;
-  boughtAsset: "XMR" | "BTC" | "USDT";
+  boughtAsset: "XMR" | "BTC" | "XAUT" | "USDT";
   bought: number;
   xmrUsd: number | null;
   btcUsd: number | null;
@@ -64,7 +65,8 @@ export interface StatusDto {
   price: number | null;
   usdPerXmr: number | null;
   usdPerBtc: number | null;
-  wallets: { xmr: number; btc: number; xmrAvail: number; btcAvail: number; ustAvail: number } | null;
+  usdPerXaut: number | null;
+  wallets: { xmr: number; btc: number; xmrAvail: number; btcAvail: number; ustAvail: number; xaut?: number; xautAvail?: number } | null;
   walletRows: Array<{ type: string; currency: string; balance: number; availableBalance: number }> | null;
   equityXmr: number | null;
   holding: "BTC" | "XMR" | "MIXED" | "EMPTY" | null;

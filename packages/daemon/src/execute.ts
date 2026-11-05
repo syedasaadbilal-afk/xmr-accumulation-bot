@@ -3,6 +3,7 @@ import { priceString, type Exchange } from "./bitfinex.js";
 export const XMR_UST = "tXMRUST";
 export const BTC_UST = "tBTCUST";
 export const XMR_BTC = "tXMRBTC";
+export const XAUT_UST = "tXAUT:UST";
 
 /** How far through the book a "marketable" limit order reaches. */
 const LIMIT_BUFFER = 0.005;
@@ -85,8 +86,8 @@ export async function placeLimitAndWait(
 
 export interface RotateParams {
   ex: Exchange;
-  direction: "xmr_to_btc" | "btc_to_xmr";
-  /** Amount of the asset being SOLD (XMR for xmr_to_btc, BTC for btc_to_xmr). */
+  direction: "xmr_to_btc" | "btc_to_xmr" | "btc_to_xaut" | "xaut_to_btc";
+  /** Amount of the asset being SOLD (XMR for xmr_to_btc, BTC for btc_to_xmr and btc_to_xaut, XAUT for xaut_to_btc). */
   amount: number;
   /** USD size of each limit order. */
   chunkUsd: number;
@@ -109,8 +110,8 @@ export async function rotate(p: RotateParams): Promise<RotateResult> {
   const log = p.log ?? ((m: string) => console.log(`[xmr] ${m}`));
   const fillTimeoutMs = p.fillTimeoutMs ?? 5 * 60_000;
   const pollMs = p.pollMs ?? 4_000;
-  const sellSym = direction === "xmr_to_btc" ? XMR_UST : BTC_UST;
-  const buySym = direction === "xmr_to_btc" ? BTC_UST : XMR_UST;
+  const sellSym = direction === "xmr_to_btc" ? XMR_UST : direction === "xaut_to_btc" ? XAUT_UST : BTC_UST;
+  const buySym = direction === "xmr_to_btc" || direction === "xaut_to_btc" ? BTC_UST : direction === "btc_to_xaut" ? XAUT_UST : XMR_UST;
   const result: RotateResult = { sold: 0, bought: 0, strandedUst: 0, interrupted: null, fills: [] };
   const record = (f: FillRecord) => {
     result.fills.push(f);

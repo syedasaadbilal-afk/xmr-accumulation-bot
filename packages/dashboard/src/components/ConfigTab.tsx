@@ -17,8 +17,9 @@ function Settings({ s, reload }: { s: StatusDto; reload: () => Promise<void> }) 
   const [chunk, setChunk] = useState(String(c.chunkUsd));
   const [minTrade, setMinTrade] = useState(String(c.minTradeUsd));
   const [posCap, setPosCap] = useState(String(c.positionCapXmr));
-  const [reserve, setReserve] = useState(String(c.usdtReserve ?? 0));
-  const [xres, setXres] = useState(String(c.xmrReserve ?? 0));
+  const [reserve, setReserve] = useState(String(c.xautReserve ?? 0));
+  const [rEn, setREn] = useState(c.reservesEnabled ?? true);
+  const [bres, setBres] = useState(String(c.btcReserve ?? 0));
   const [sEn, setSEn] = useState(c.strategyCap.enabled);
   const [sPct, setSPct] = useState(String(c.strategyCap.maxDistPct));
   const [nEn, setNEn] = useState(c.newMoneyCap.enabled);
@@ -33,8 +34,9 @@ function Settings({ s, reload }: { s: StatusDto; reload: () => Promise<void> }) 
       chunkUsd: Number(chunk),
       minTradeUsd: Number(minTrade),
       positionCapXmr: Number(posCap),
-      xmrReserve: Number(xres),
-      usdtReserve: Number(reserve),
+      reservesEnabled: rEn,
+      btcReserve: Number(bres),
+      xautReserve: Number(reserve),
       strategyCap: { enabled: sEn, maxDistPct: Number(sPct) },
       newMoneyCap: { enabled: nEn, maxDistPct: Number(nPct), minLumpPct: Number(nLump) },
     };
@@ -56,11 +58,15 @@ function Settings({ s, reload }: { s: StatusDto; reload: () => Promise<void> }) 
         <div className="border border-slate-800 rounded p-3 space-y-2">
           <div className="text-xs uppercase tracking-wider text-slate-400">Reserves (kept out of the strategy)</div>
           <div className="flex flex-wrap items-center gap-4">
-            <NumField label="XMR reserve" value={xres} onChange={setXres} suffix="XMR (0 = off)" />
-            <NumField label="of which parked as USDT" value={reserve} onChange={setReserve} suffix="USDT (0 = none)" />
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={rEn} onChange={(e) => setREn(e.target.checked)} />
+              Use it
+            </label>
+            <NumField label="BTC reserve" value={bres} onChange={setBres} suffix="BTC (0 = off)" />
+            <NumField label="of which held as XAUT" value={reserve} onChange={setReserve} suffix="XAUT (0 = none)" />
           </div>
           <p className="text-xs text-slate-500">
-            The XMR reserve is a pot of XMR the strategy never converts to BTC. If the wallet holds less than this (counting the USDT carved from it), the bot buys XMR with BTC, in order-size chunks, one order at a time, until it is in place. The USDT amount is taken out of that pot by selling XMR; it never sells the strategy position and has no effect while the XMR reserve is 0. Any other USDT in the wallet is treated as idle and swept into whatever the strategy wants. Parked USDT still counts in account value.
+            The BTC reserve is a pot of BTC the strategy never converts to XMR. If the wallet holds less than this (counting the USDT carved from it) while the strategy is in XMR, the bot buys BTC with XMR, in order-size chunks, one order at a time, until it is in place. The last small gap is closed with the smallest XMR sale the exchange accepts, so the reserve ends at or just above the target. The XAUT amount is carved out of that pot: the bot sells BTC for XAUT (through USDT, one order at a time) until that much XAUT is held, and converts XAUT back to BTC if you lower it or switch the reserves off. It has no effect while the BTC reserve is 0 and is capped at the value of the BTC reserve. Untick Use it to switch the reserves off (the amounts are kept). Any other USDT in the wallet is treated as idle and swept into whatever the strategy wants. Parked USDT still counts in account value.
           </p>
         </div>
 

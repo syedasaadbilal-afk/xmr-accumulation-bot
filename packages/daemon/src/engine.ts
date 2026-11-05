@@ -1,6 +1,6 @@
 import type { Exchange, WalletBalance } from "./bitfinex.js";
 import type { BotConfig, BotState } from "./config.js";
-import { BTC_UST, XMR_BTC, XMR_UST, convertToUst, otherSymbol, raiseUst, rotate, sweepUst } from "./execute.js";
+import { BTC_UST, XAUT_UST, XMR_BTC, XMR_UST, convertToUst, otherSymbol, rotate, sweepUst } from "./execute.js";
 import {
   RELIABLE_BARS,
   buildTrades,
@@ -14,6 +14,11 @@ import type { Store } from "./store.js";
 
 /** XMR/BTC history reaches back to 2016 (~3,700 daily bars). The Larsson lines need the full history to match TradingView exactly. */
 export const CANDLE_LIMIT = 5000;
+/** Smallest XMR sale (exchange minimum is 0.02 XMR) and BTC purchase (0.00004 BTC) used to close a last small reserve gap. */
+const MIN_XMR_SELL = 0.0205;
+const MIN_BTC_BUY = 0.00005;
+/** Smallest XAUT purchase (exchange minimum is 0.002 XAUT) used to close a last small XAUT gap. */
+const MIN_XAUT_BUY = 0.0021;
 
 // ---------------------------------------------------------------- analysis
 
@@ -60,7 +65,10 @@ export interface WalletView {
   xmrAvail: number;
   btcAvail: number;
   ustAvail: number;
-  /** Balances in anything other than BTC, XMR and USDT (USD, other coins). */
+  /** XAUT held as the secondary reserve. */
+  xaut?: number;
+  xautAvail?: number;
+  /** Balances in anything other than BTC, XMR, XAUT and USDT (USD, other coins). */
   others?: Array<{ currency: string; available: number }>;
 }
 
@@ -73,21 +81,23 @@ export function walletView(w: WalletBalance[]): WalletView {
     xmrAvail: get("XMR")?.availableBalance ?? 0,
     btcAvail: get("BTC")?.availableBalance ?? 0,
     ustAvail: ust,
+    xaut: get("XAUT")?.balance ?? 0,
+    xautAvail: get("XAUT")?.availableBalance ?? 0,
     others: w
-      .filter((x) => !(["BTC", "XMR", "UST", "USDT"] as string[]).includes(x.currency) && !x.currency.startsWith("TEST") && x.availableBalance > 0)
+      .filter((x) => !(["BTC", "XMR", "XAUT", "UST", "USDT"] as string[]).includes(x.currency) && !x.currency.startsWith("TEST") && x.availableBalance > 0)
       .map((x) => ({ currency: x.currency, available: x.availableBalance })),
   };
 }
 
-/** USDT the bot keeps parked: the USDT reserve, limited to the value of the XMR reserve, and 0 while the XMR reserve is off. */
-export function usdtTargetOf(cfg: { xmrReserve: number; usdtReserve: number }, usdPerXmr: number): number {
-  if (!(cfg.xmrReserve > 0)) return 0;
-  return Math.min(Math.max(0, cfg.usdtReserve), cfg.xmrReserve * usdPerXmr);
+/** XAUT the bot keeps as the secondary reserve: the XAUT amount, limited to the value of the BTC reserve, and 0 while the BTC reserve is off. */
+export function xautTargetOf(cfg: { reservesEnabled?: boolean; btcReserve: number; xautReserve: number }, usdPerBtc: number, usdPerXaut: number): number {
+  if (cfg.reservesEnabled === false || !(cfg.btcReserve > 0) || !(cfg.xautReserve > 0) || !(usdPerXaut > 0)) return 0;
+  return Math.min(cfg.xautReserve, (cfg.btcReserve * usdPerBtc) / usdPerXaut);
 }
 
-/** USDT that counts as part of the account value: the parked reserve plus leftovers of the bot's own rotations. */
-export function parkedUst(w: { ustAvail: number }, cfg: { xmrReserve: number; usdtReserve: number }, strandedUst: number, usdPerXmr: number): number {
-  return Math.min(w.ustAvail, usdtTargetOf(cfg, usdPerXmr) + Math.max(0, strandedUst));
+/** USDT that counts as part of the account value: leftovers of the bot's own rotations. */
+export function parkedUst(w: { ustAvail: number }, strandedUst: number): number {
+  return Math.min(w.ustAvail, Math.max(0, strandedUst));
 }
 
 export interface PlanInput {
@@ -98,6 +108,8 @@ export interface PlanInput {
   price: number;
   usdPerXmr: number;
   usdPerBtc: number;
+  /** USD per XAUT, when the XAUT price could be read (needed for the XAUT reserve). */
+  usdPerXaut?: number;
   desiredBtc: boolean;
   /** Distance of BTC (in XMR) above its Larsson baseline, as a fraction; null while warming up. */
   dist: number | null;
@@ -116,8 +128,9 @@ export interface DepositFound {
 export type PlannedAction =
   | { kind: "none"; why: string }
   | { kind: "sweep"; into: "btc" | "xmr"; ust: number; idle?: boolean }
-  | { kind: "raise_usdt"; usd: number; base: number }
-  | { kind: "reserve_xmr"; btc: number }
+  | { kind: "reserve_btc"; xmr: number }
+  | { kind: "reserve_xaut"; btc: number }
+  | { kind: "release_xaut"; xaut: number }
   | { kind: "convert_other"; currency: string; amount: number; usd: number }
   | { kind: "to_btc"; xmr: number }
   | { kind: "to_xmr"; btc: number };
@@ -191,20 +204,23 @@ export function planTick(i: PlanInput): Plan {
   // 3. Decide the next action.
   let action: PlannedAction;
   let clearStranded = false;
-  // Reserves. The XMR reserve is a pot kept out of the strategy; the USDT reserve is carved out of that
-  // pot only. USDT beyond the target is idle and is swept into what the strategy wants (bot-only account).
-  const xres = Math.max(0, cfg.xmrReserve);
-  const usdtTarget = usdtTargetOf(cfg, i.usdPerXmr);
-  const parked = Math.min(w.ustAvail, usdtTarget);
+  // Reserves. The BTC reserve is a pot kept out of the strategy; part of it can be held as XAUT instead of BTC
+  // (the XAUT reserve, carved out of the pot only). USDT in the wallet is idle and is swept into what the strategy wants.
+  const bres = cfg.reservesEnabled === false ? 0 : Math.max(0, cfg.btcReserve);
+  const uX = i.usdPerXaut && i.usdPerXaut > 0 ? i.usdPerXaut : 0;
+  const xaut = w.xautAvail ?? 0;
+  const xTarget = uX > 0 ? xautTargetOf(cfg, i.usdPerBtc, uX) : 0;
+  const potXautBtc = uX > 0 ? (Math.min(xaut, xTarget) * uX) / i.usdPerBtc : 0; // BTC value of the XAUT that is part of the pot
   const xmrFree = Math.max(0, w.xmrAvail - heldBack);
-  const xmrHold = Math.max(0, xres - parked / i.usdPerXmr); // XMR that stays in the wallet for the pot
-  // Reserve moves must clear the XMR minimum order (~0.002 XMR); a plain idle-USDT sweep only needs ~$2
+  const btcHold = Math.max(0, bres - potXautBtc); // BTC that stays in the wallet for the pot
+  const stratBtc = Math.max(0, w.btc - btcHold); // BTC the strategy itself holds (position cap counts only this)
+  // Reserve moves must clear the exchange minimum orders; a plain idle-USDT sweep only needs ~$2
   // (and is parked for a balance whose last sweep could not buy anything).
-  const reserveMin = Math.max(cfg.minTradeUsd, 5, 0.0025 * i.usdPerXmr);
+  const reserveMin = Math.max(cfg.minTradeUsd, 5);
   const idleMin = Math.max(cfg.minTradeUsd, 2);
   const idleParked = state.ignoredOthers.includes(`USDT:${w.ustAvail.toFixed(2)}`);
   // The sweep itself keeps a small price buffer, so the whole excess can be offered.
-  const excessUst = idleParked ? 0 : Math.max(0, w.ustAvail - usdtTarget);
+  const excessUst = idleParked ? 0 : Math.max(0, w.ustAvail);
   if (state.strandedUst >= cfg.minTradeUsd) {
     const ust = Math.min(state.strandedUst, excessUst);
     if (ust >= 1) {
@@ -224,40 +240,59 @@ export function planTick(i: PlanInput): Plan {
       return { deposits, heldBackXmr: heldBack, clearStranded, action, notes };
     }
   }
-  // 3a. XMR pot short (XMR in the wallet plus the USDT carved from it): build it from BTC.
-  if (xres > 0 && desiredBtc) {
-    const deficit = xres - (xmrFree + parked / i.usdPerXmr);
-    if (deficit * i.usdPerXmr >= reserveMin) {
-      // Idle USDT in the wallet goes into the pot first; BTC is only sold for what is still missing.
-      if (excessUst >= reserveMin) {
-        const ust = Math.min(excessUst, deficit * i.usdPerXmr);
-        notes.push(`XMR reserve is short: ${ust.toFixed(2)} idle USDT spent on XMR first`);
-        action = { kind: "sweep", into: "xmr", ust, idle: true };
+  // 3a. BTC pot short (BTC in the wallet plus the USDT carved from it) while the strategy is in XMR: build it from XMR.
+  // While the strategy wants BTC, every XMR is converted to BTC anyway, which fills the pot.
+  if (bres > 0 && !desiredBtc) {
+    const deficit = bres - (w.btcAvail + potXautBtc);
+    // A last small gap is closed with the smallest XMR sale the exchange accepts, so the reserve ends at or just
+    // above the target. Gaps under 0.0000001 BTC are ignored.
+    if (deficit >= 0.0000001) {
+      const buyBtc = Math.max(deficit, MIN_XMR_SELL * price);
+      const buyUsd = buyBtc * i.usdPerBtc;
+      // Idle USDT in the wallet goes into the pot first; XMR is only sold for what is still missing.
+      if (excessUst >= Math.min(buyUsd, MIN_BTC_BUY * i.usdPerBtc)) {
+        const ust = Math.min(excessUst, buyUsd);
+        notes.push(`BTC reserve is short: ${ust.toFixed(2)} idle USDT spent on BTC first`);
+        action = { kind: "sweep", into: "btc", ust, idle: true };
         return { deposits, heldBackXmr: heldBack, clearStranded, action, notes };
       }
-      const sell = Math.min(w.btcAvail, deficit * price);
-      if (sell * i.usdPerBtc >= cfg.minTradeUsd) {
-        notes.push(`XMR reserve is ${xres} but only ${(xres - deficit).toFixed(4)} is in place: buying XMR with BTC`);
-        action = { kind: "reserve_xmr", btc: sell };
+      const sell = Math.min(xmrFree, buyBtc / price);
+      if (sell >= MIN_XMR_SELL && sell * i.usdPerXmr >= (buyUsd >= cfg.minTradeUsd ? Math.max(cfg.minTradeUsd, 4) : 4)) {
+        notes.push(`BTC reserve is ${bres} but only ${(bres - deficit).toFixed(8)} is in place: buying BTC with XMR`);
+        action = { kind: "reserve_btc", xmr: sell };
         return { deposits, heldBackXmr: heldBack, clearStranded, action, notes };
       }
     }
   }
-  // 3b. USDT reserve short: sell XMR from the pot (never the strategy position).
-  const shortfall = usdtTarget - w.ustAvail;
-  if (usdtTarget > 0 && shortfall >= reserveMin) {
-    const value = xmrFree * i.usdPerXmr;
-    if (value >= cfg.minTradeUsd) {
-      notes.push(`USDT reserve is ${usdtTarget.toFixed(2)} but the wallet holds ${w.ustAvail.toFixed(2)}: selling XMR from the reserve`);
-      action = { kind: "raise_usdt", usd: Math.min(shortfall, value), base: xmrFree };
+  // 3b. XAUT part of the pot short: sell BTC from the pot for XAUT. A last gap below the exchange minimum is closed with
+  // the minimum order, so the XAUT ends at or just above the target.
+  if (uX > 0 && xTarget > 0) {
+    const xDef = xTarget - xaut;
+    if (xDef >= 0.00001) {
+      const buyXaut = Math.max(xDef, MIN_XAUT_BUY);
+      const sellBtc = Math.min(w.btcAvail, (buyXaut * uX) / i.usdPerBtc);
+      const usd = sellBtc * i.usdPerBtc;
+      if (usd >= (buyXaut * uX >= cfg.minTradeUsd ? Math.max(cfg.minTradeUsd, 4) : 4)) {
+        notes.push(`XAUT reserve is ${xTarget.toFixed(4)} but only ${xaut.toFixed(4)} is in place: buying XAUT with BTC`);
+        action = { kind: "reserve_xaut", btc: sellBtc };
+        return { deposits, heldBackXmr: heldBack, clearStranded, action, notes };
+      }
+    }
+  }
+  // 3b'. XAUT above the target (reserve lowered or switched off, or XAUT deposited): released back into BTC.
+  if (uX > 0) {
+    const xExcess = xaut - xTarget;
+    if (xExcess >= MIN_XAUT_BUY && xExcess * uX >= Math.max(cfg.minTradeUsd, 12)) {
+      notes.push(`${xExcess.toFixed(4)} XAUT is above the XAUT reserve: converting back to BTC`);
+      action = { kind: "release_xaut", xaut: xExcess };
       return { deposits, heldBackXmr: heldBack, clearStranded, action, notes };
     }
   }
-  // 3c. USDT above the reserve target is idle: swept into the desired asset (position cap respected).
+  // 3c. USDT in the wallet is idle: swept into the desired asset (position cap respected).
   if (excessUst >= idleMin) {
     let ust = excessUst;
     if (desiredBtc && cfg.positionCapXmr > 0) {
-      const room = Math.max(0, cfg.positionCapXmr - w.btc / price);
+      const room = Math.max(0, cfg.positionCapXmr - stratBtc / price);
       ust = Math.min(ust, room * i.usdPerXmr);
     }
     if (ust >= idleMin) {
@@ -268,10 +303,10 @@ export function planTick(i: PlanInput): Plan {
   }
 
   if (desiredBtc) {
-    let sell = Math.max(0, w.xmrAvail - heldBack - xmrHold);
+    let sell = xmrFree;
     let why = "";
     if (cfg.positionCapXmr > 0) {
-      const room = Math.max(0, cfg.positionCapXmr - w.btc / price);
+      const room = Math.max(0, cfg.positionCapXmr - stratBtc / price);
       if (room < sell) {
         sell = room;
         why = ` (position cap ${cfg.positionCapXmr} XMR)`;
@@ -280,8 +315,9 @@ export function planTick(i: PlanInput): Plan {
     if (sell * i.usdPerXmr >= cfg.minTradeUsd) action = { kind: "to_btc", xmr: sell };
     else action = { kind: "none", why: heldBack > 0 ? `holding BTC; ${heldBack.toFixed(4)} XMR held back by the new-money cap` : `holding BTC${why}; nothing to convert` };
   } else {
-    if (w.btcAvail * i.usdPerBtc >= cfg.minTradeUsd) action = { kind: "to_xmr", btc: w.btcAvail };
-    else action = { kind: "none", why: "holding XMR; nothing to convert" };
+    const sellBtc = Math.max(0, w.btcAvail - btcHold);
+    if (sellBtc * i.usdPerBtc >= cfg.minTradeUsd) action = { kind: "to_xmr", btc: sellBtc };
+    else action = { kind: "none", why: bres > 0 ? "holding XMR; the BTC reserve stays in BTC" : "holding XMR; nothing to convert" };
   }
   return { deposits, heldBackXmr: heldBack, clearStranded, action, notes };
 }
@@ -327,6 +363,16 @@ export async function runTick(d: { ex: Exchange; store: Store; now?: number; pol
     const price = xmrBtc.last;
     if (!(price > 0) || !(xmrUst.last > 0) || !(btcUst.last > 0)) return finish({ action: "blocked", detail: "missing prices" });
     const wallets = walletView(walletRows);
+    // XAUT price, only needed while the XAUT reserve is in use or some XAUT is held.
+    let usdPerXaut: number | undefined;
+    if ((cfg.reservesEnabled !== false && cfg.btcReserve > 0 && cfg.xautReserve > 0) || (wallets.xaut ?? 0) > 0) {
+      try {
+        const t = await ex.getTicker(XAUT_UST);
+        if (t.last > 0) usdPerXaut = t.last;
+      } catch {
+        usdPerXaut = undefined; // XAUT steps are skipped this tick
+      }
+    }
 
     // USD value of every balance that is not USDT, BTC or XMR (skipping ones that failed before and have not changed).
     const others: Array<{ currency: string; available: number; usd: number }> = [];
@@ -351,6 +397,7 @@ export async function runTick(d: { ex: Exchange; store: Store; now?: number; pol
       price,
       usdPerXmr: xmrUst.last,
       usdPerBtc: btcUst.last,
+      ...(usdPerXaut !== undefined ? { usdPerXaut } : {}),
       desiredBtc: a.desiredBtc,
       dist: a.last.dist,
       others,
@@ -363,7 +410,7 @@ export async function runTick(d: { ex: Exchange; store: Store; now?: number; pol
     for (const n of plan.notes) store.addEvent("info", n, undefined, now);
     state = { ...state, heldBackXmr: plan.heldBackXmr, ...(plan.clearStranded ? { strandedUst: 0 } : {}) };
 
-    const equityXmr = wallets.xmr + wallets.btc / price + parkedUst(wallets, cfg, state.strandedUst, xmrUst.last) / xmrUst.last;
+    const equityXmr = wallets.xmr + wallets.btc / price + parkedUst(wallets, state.strandedUst) / xmrUst.last + (usdPerXaut ? ((wallets.xaut ?? 0) * usdPerXaut) / xmrUst.last : 0);
     store.addSnapshot({ ts: now, xmr: wallets.xmr, btc: wallets.btc, price, equityXmr });
     const baseline = { xmr: wallets.xmr, btc: wallets.btc, at: now };
 
@@ -383,13 +430,15 @@ export async function runTick(d: { ex: Exchange; store: Store; now?: number; pol
         ? `${fx(act.xmr, 6)} XMR -> BTC`
         : act.kind === "to_xmr"
           ? `${fx(act.btc, 8)} BTC -> XMR`
-          : act.kind === "raise_usdt"
-            ? `${fx(act.usd, 2)} USDT from XMR (USDT reserve)`
-            : act.kind === "reserve_xmr"
-              ? `${fx(act.btc, 8)} BTC -> XMR (XMR reserve)`
-              : act.kind === "convert_other"
-                ? `${fx(act.amount, 6)} ${act.currency} (~$${fx(act.usd, 2)}) -> USDT`
-                : `${fx(act.ust, 2)} USDT -> ${act.into.toUpperCase()}`;
+          : act.kind === "reserve_btc"
+            ? `${fx(act.xmr, 6)} XMR -> BTC (BTC reserve)`
+            : act.kind === "reserve_xaut"
+              ? `${fx(act.btc, 8)} BTC -> XAUT (XAUT reserve)`
+              : act.kind === "release_xaut"
+                ? `${fx(act.xaut, 6)} XAUT -> BTC (XAUT released)`
+                : act.kind === "convert_other"
+                  ? `${fx(act.amount, 6)} ${act.currency} (~$${fx(act.usd, 2)}) -> USDT`
+                  : `${fx(act.ust, 2)} USDT -> ${act.into.toUpperCase()}`;
 
     if (cfg.mode !== "LIVE" || ex.runMode !== "LIVE") {
       state = { ...state, snapshot: baseline };
@@ -398,13 +447,13 @@ export async function runTick(d: { ex: Exchange; store: Store; now?: number; pol
         store.addEvent("would", `[DRY_RUN] would convert ${describe}`, { regime: a.last.regime, dist: a.last.dist }, now);
         state = { ...state, lastWouldKey: key };
       }
-      const kind = act.kind === "to_btc" ? "would_to_btc" : act.kind === "to_xmr" ? "would_to_xmr" : act.kind === "raise_usdt" ? "would_raise_usdt" : act.kind === "reserve_xmr" ? "would_reserve" : act.kind === "convert_other" ? "would_convert" : "would_sweep";
+      const kind = act.kind === "to_btc" ? "would_to_btc" : act.kind === "to_xmr" ? "would_to_xmr" : act.kind === "reserve_btc" || act.kind === "reserve_xaut" || act.kind === "release_xaut" ? "would_reserve" : act.kind === "convert_other" ? "would_convert" : "would_sweep";
       return finish({ action: kind, detail: `[DRY_RUN] would convert ${describe}` });
     }
 
     // ---- LIVE ----
     // Reserve moves and idle-USDT sweeps are tagged "usdt:" so they never pose as trade entries/exits.
-    const rotationId = act.kind === "raise_usdt" || act.kind === "convert_other" || (act.kind === "sweep" && act.idle) ? `usdt:${now}` : act.kind === "reserve_xmr" ? `xres:${now}` : String(now);
+    const rotationId = act.kind === "convert_other" || (act.kind === "sweep" && act.idle) ? `usdt:${now}` : act.kind === "reserve_btc" ? `xres:${now}` : act.kind === "reserve_xaut" || act.kind === "release_xaut" ? `xaut:${now}` : String(now);
     const onFill = (f: { symbol: string; side: "buy" | "sell"; base: number; price: number }) =>
       store.addFill({ ts: Date.now(), rotationId, symbol: f.symbol, side: f.side, base: f.base, price: f.price });
     store.addEvent("rotation_start", `Converting ${describe}`, { regime: a.last.regime, dist: a.last.dist }, now);
@@ -418,13 +467,7 @@ export async function runTick(d: { ex: Exchange; store: Store; now?: number; pol
     let summary: string;
     let interrupted: string | null;
     let kind: TickResult["action"];
-    if (act.kind === "raise_usdt") {
-      const r = await raiseUst({ ex, from: "xmr", usd: act.usd, maxBase: act.base, chunkUsd: cfg.chunkUsd, onFill, shouldStop, ...(d.pollMs !== undefined ? { pollMs: d.pollMs } : {}) });
-      stranded = state.strandedUst;
-      summary = `Raised ${fx(r.proceeds, 2)} USDT by selling ${fx(r.sold, 6)} XMR from the reserve`;
-      interrupted = r.interrupted;
-      kind = "raised";
-    } else if (act.kind === "convert_other") {
+    if (act.kind === "convert_other") {
       const r = await convertToUst({ ex, currency: act.currency, amount: act.amount, chunkUsd: cfg.chunkUsd, onFill, shouldStop, ...(d.pollMs !== undefined ? { pollMs: d.pollMs } : {}) });
       stranded = state.strandedUst;
       summary = `Converted ${fx(r.spent, 6)} ${act.currency} into ${fx(r.gotUst, 2)} USDT`;
@@ -448,18 +491,19 @@ export async function runTick(d: { ex: Exchange; store: Store; now?: number; pol
     } else {
       const r = await rotate({
         ex,
-        direction: act.kind === "to_btc" ? "xmr_to_btc" : "btc_to_xmr",
-        amount: act.kind === "to_btc" ? act.xmr : act.btc,
+        direction: act.kind === "to_btc" || act.kind === "reserve_btc" ? "xmr_to_btc" : act.kind === "reserve_xaut" ? "btc_to_xaut" : act.kind === "release_xaut" ? "xaut_to_btc" : "btc_to_xmr",
+        amount: act.kind === "to_btc" || act.kind === "reserve_btc" ? act.xmr : act.kind === "release_xaut" ? act.xaut : act.btc,
         chunkUsd: cfg.chunkUsd,
         onFill,
         shouldStop,
         ...(d.pollMs !== undefined ? { pollMs: d.pollMs } : {}),
       });
       stranded = r.strandedUst;
-      const [soldU, boughtU, soldD, boughtD] = act.kind === "to_btc" ? ["XMR", "BTC", 6, 8] : ["BTC", "XMR", 8, 6];
+      const [soldU, boughtU, soldD, boughtD] =
+        act.kind === "to_btc" || act.kind === "reserve_btc" ? ["XMR", "BTC", 6, 8] : act.kind === "reserve_xaut" ? ["BTC", "XAUT", 8, 6] : act.kind === "release_xaut" ? ["XAUT", "BTC", 6, 8] : ["BTC", "XMR", 8, 6];
       summary = `Sold ${fx(r.sold, soldD as number)} ${soldU}, bought ${fx(r.bought, boughtD as number)} ${boughtU}`;
       interrupted = r.interrupted;
-      kind = act.kind === "reserve_xmr" ? "reserved" : "rotated";
+      kind = act.kind === "reserve_btc" || act.kind === "reserve_xaut" || act.kind === "release_xaut" ? "reserved" : "rotated";
     }
     state = { ...state, strandedUst: act.kind === "sweep" && act.idle ? state.strandedUst : stranded, lastWouldKey: null };
     store.addEvent(interrupted ? "rotation_partial" : "rotation_done", interrupted ? `${summary} - stopped: ${interrupted}` : summary, { stranded }, Date.now());
